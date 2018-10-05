@@ -4,8 +4,7 @@ import (
 	"sync"
 )
 
-//const NOT_LOGGED_LIFE_TIME = 5 * time.Second
-//const PING_TIMEOUT = 10 * time.Minute
+//TODO: optimize
 
 type ConnectionsStats struct {
 	NumberOfUsers                int
@@ -16,8 +15,6 @@ type ConnectionsStats struct {
 type ConnectionsStorage struct {
 	mutex                        sync.RWMutex
 	connectionsById              map[ConnectionId]*Connection
-	connectionsByUserId          map[UserId]map[DeviceId]*Connection
-	connectionsByDeviceId        map[DeviceId]*Connection // one connection per device
 	numberOfNotLoggedConnections int
 }
 
@@ -25,8 +22,6 @@ func NewConnectionsStorage() *ConnectionsStorage {
 	return &ConnectionsStorage{
 		mutex:                        sync.RWMutex{},
 		connectionsById:              make(map[ConnectionId]*Connection),
-		connectionsByUserId:          make(map[UserId]map[DeviceId]*Connection),
-		connectionsByDeviceId:        make(map[DeviceId]*Connection),
 		numberOfNotLoggedConnections: 0,
 	}
 }
@@ -39,33 +34,6 @@ func (s *ConnectionsStorage) AddNewConnection(connection *Connection) {
 	s.connectionsById[connection.id] = connection
 }
 
-func (s *ConnectionsStorage) OnLogin(connection *Connection) *Connection {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	_, userId, deviceId := connection.GetInfo()
-	if userId == "" {
-		return nil
-	}
-
-	s.numberOfNotLoggedConnections--
-
-	deviceConnectionBefore := s.connectionsByDeviceId[connection.deviceId]
-	if deviceConnectionBefore != nil {
-		s.removeConnection(deviceConnectionBefore)
-	}
-	s.connectionsByDeviceId[deviceId] = connection
-
-	userConnections := s.connectionsByUserId[userId]
-	if userConnections == nil {
-		userConnections = make(map[DeviceId]*Connection)
-		s.connectionsByUserId[userId] = userConnections
-	}
-	userConnections[deviceId] = connection
-
-	return deviceConnectionBefore
-}
-
 func (s *ConnectionsStorage) RemoveConnection(connection *Connection) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -75,7 +43,7 @@ func (s *ConnectionsStorage) RemoveConnection(connection *Connection) {
 
 func (s *ConnectionsStorage) removeConnection(connection *Connection) {
 
-	connectionId, userId, deviceId := connection.GetInfo()
+	connectionId, userId, _ := connection.GetInfo()
 
 	connectionBefore := s.connectionsById[connectionId]
 	if connectionBefore == nil {
@@ -88,33 +56,36 @@ func (s *ConnectionsStorage) removeConnection(connection *Connection) {
 		s.numberOfNotLoggedConnections--
 		return
 	}
+}
 
-	userConnections := s.connectionsByUserId[userId]
-	if userConnections != nil {
-		delete(userConnections, deviceId)
-		if len(userConnections) == 0 {
-			delete(s.connectionsByUserId, userId)
+func (s *ConnectionsStorage) GetUserConnections(userId UserId) []*Connection {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	connections := []*Connection{}
+
+	for _, connection := range s.connectionsById {
+		if connection.userId == userId {
+			connections = append(connections, connection)
 		}
 	}
 
-	deviceConnection := s.connectionsByDeviceId[deviceId]
-	if deviceConnection != nil {
-		delete(s.connectionsByDeviceId, deviceId)
+	return connections
+}
+
+func (s *ConnectionsStorage) GetDeviceConnections(userId UserId, deviceId DeviceId) []*Connection {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	connections := []*Connection{}
+
+	for _, connection := range s.connectionsById {
+		if connection.deviceId == deviceId && connection.userId == userId {
+			connections = append(connections, connection)
+		}
 	}
-}
 
-func (s *ConnectionsStorage) GetUserConnections(userId UserId) map[DeviceId]*Connection {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-
-	return s.connectionsByUserId[userId]
-}
-
-func (s *ConnectionsStorage) GetDeviceConnection(deviceId DeviceId) *Connection {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-
-	return s.connectionsByDeviceId[deviceId]
+	return connections
 }
 
 func (s *ConnectionsStorage) GetConnectionById(connectionId ConnectionId) *Connection {
@@ -129,41 +100,38 @@ func (s *ConnectionsStorage) GetStats() ConnectionsStats {
 	defer s.mutex.RUnlock()
 
 	stats := ConnectionsStats{
-		NumberOfDevices:              len(s.connectionsByDeviceId),
-		NumberOfUsers:                len(s.connectionsByUserId),
+		// NumberOfDevices:              len(s.connectionsByDeviceId),
+		// NumberOfUsers:                len(s.connectionsByUserId),
 		NumberOfNotLoggedConnections: s.numberOfNotLoggedConnections,
 	}
 
 	return stats
 }
 
-func (s *ConnectionsStorage) RemoveIf(condition func(con *Connection) bool, afterRemove func(con *Connection)) {
+func (s *ConnectionsStorage) RemoveIf(condition func(con *Connection) bool, afterRemove func(connections []*Connection)) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
+	connections := []*Connection{}
+
 	for id, connection := range s.connectionsById {
 		if condition(connection) {
-
-			_, userId, deviceId := connection.GetInfo()
-
 			delete(s.connectionsById, id)
-
-			if deviceId != "" {
-				delete(s.connectionsByDeviceId, deviceId)
-			}
-
-			if userId != "" {
-				userConnections := s.connectionsByUserId[userId]
-				if userConnections != nil {
-					if len(userConnections) == 1 {
-						delete(s.connectionsByUserId, userId)
-					} else {
-						delete(userConnections, deviceId)
-					}
-				}
-			}
-
-			afterRemove(connection)
+			connections = append(connections, connection)
 		}
 	}
+
+	afterRemove(connections)
+}
+
+func (s *ConnectionsStorage) RemoveDeviceConnections(userId UserId, deviceId DeviceId, afterRemove func(connections []*Connection)) {
+	s.RemoveIf(func(con *Connection) bool {
+		return con.deviceId == deviceId && con.userId == userId
+	}, afterRemove)
+}
+
+func (s *ConnectionsStorage) RemoveUserConnections(userId UserId, afterRemove func(connections []*Connection)) {
+	s.RemoveIf(func(con *Connection) bool {
+		return con.userId == userId
+	}, afterRemove)
 }

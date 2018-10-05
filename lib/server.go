@@ -140,6 +140,9 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	fmt.Println(deviceId)
 	connection.SetReadLimit(100000000)
 	con := s.registerConnection(connection)
+	//TODO: add onlyAuthorized connections support
+	con.Login(*userId, *deviceId)
+
 	go s.handleInputMessages(con)
 	s.cleanConnectionsIfNeed(con)
 
@@ -147,122 +150,7 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	s.cubeInstance.PublishMessage(cube.Channel("wsOutput"), *packedMessage)
 
 	//TODO: add onlyAuthorized connections support
-
-	// writer.WriteHeader(http.StatusOK)
-
-	// requestData, err := h.packRequest(userId, deviceId, request)
-	// if err != nil {
-	// 	http.Error(writer,
-	// 		http.StatusText(http.StatusInternalServerError),
-	// 		http.StatusInternalServerError)
-	// 	return
-	// }
-
-	// timeout := time.Duration(h.timeoutMs) * time.Millisecond
-
-	// cubeChannel := cube.Channel(request.Method)
-	// if h.endpointsMap != nil {
-
-	// 	cubeChannel = cube.Channel(h.endpointsMap[Uri(request.RequestURI)])
-	// 	if cubeChannel == "" {
-	// 		http.Error(writer,
-	// 			http.StatusText(http.StatusBadRequest),
-	// 			http.StatusBadRequest)
-	// 		return
-	// 	}
-	// }
-
-	// if h.devMode {
-	// 	fmt.Println("")
-	// 	fmt.Println("-----")
-	// 	fmt.Println("ROUTE REQUEST:")
-	// 	fmt.Println("channel: ", cubeChannel)
-	// 	fmt.Println("packed request: ")
-	// 	data, _ := json.Marshal(requestData)
-	// 	fmt.Println(string(data))
-	// 	fmt.Println("-----")
-	// }
-
-	// response, err := h.cubeInstance.CallMethod(cubeChannel, *requestData, timeout)
-	// if err != nil {
-	// 	if err == cube.ErrorTimeout {
-	// 		http.Error(writer,
-	// 			http.StatusText(http.StatusGatewayTimeout),
-	// 			http.StatusGatewayTimeout)
-	// 		return
-	// 	}
-
-	// 	http.Error(writer,
-	// 		http.StatusText(http.StatusInternalServerError),
-	// 		http.StatusInternalServerError)
-	// 	return
-	// }
-
-	// if h.devMode {
-	// 	fmt.Println("")
-	// 	fmt.Println("-----")
-	// 	fmt.Println("RESPONSE:")
-	// 	fmt.Println("packed response: ")
-	// 	data, _ := json.Marshal(response)
-	// 	fmt.Println(string(data))
-	// 	fmt.Println("-----")
-	// }
-
-	// err = h.handleResponse(response, writer)
-	// if err != nil {
-	// 	http.Error(writer,
-	// 		http.StatusText(http.StatusInternalServerError),
-	// 		http.StatusInternalServerError)
-	// 	return
-	// }
 }
-
-// func (s *Handler) handleResponse(responseMessage *cube.Response, writer http.ResponseWriter) error {
-
-// 	var response js.Response
-
-// 	if responseMessage.Error != nil {
-// 		if s.devMode {
-// 			fmt.Println("")
-// 			fmt.Println("-----")
-// 			fmt.Println("RESPONSE:")
-// 			fmt.Println("status: ", response.Status)
-// 			fmt.Println("body:")
-// 			fmt.Println(string(response.Body))
-// 			fmt.Println("-----")
-// 		}
-
-// 		writer.Write([]byte(responseMessage.Error.Name))
-// 		return nil
-// 	}
-
-// 	err := json.Unmarshal(*responseMessage.Result, &response)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	if h.devMode {
-// 		fmt.Println("")
-// 		fmt.Println("-----")
-// 		fmt.Println("RESPONSE:")
-// 		fmt.Println("status: ", response.Status)
-// 		fmt.Println("body:")
-// 		fmt.Println(string(response.Body))
-// 		fmt.Println("-----")
-// 	}
-
-// 	for key, value := range response.Headers {
-// 		writer.Header().Add(key, value)
-// 	}
-
-// 	writer.WriteHeader(int(response.Status))
-
-// 	if response.Body != nil && len(response.Body) > 0 {
-// 		writer.Write(response.Body)
-// 	}
-
-// 	return nil
-// }
 
 func (s *Server) cleanConnectionsIfNeed(netConnection *Connection) {
 
@@ -274,10 +162,11 @@ func (s *Server) cleanConnectionsIfNeed(netConnection *Connection) {
 
 			return now-con.GetStartTime().Unix() > 60
 
-		}, func(con *Connection) {
+		}, func(connections []*Connection) {
 
-			con.Close(websocket.ClosePolicyViolation, "Auth")
-
+			for _, connection := range connections {
+				connection.Close(websocket.ClosePolicyViolation, "Auth")
+			}
 		})
 	}
 }
@@ -363,7 +252,7 @@ func (s *Server) onBinaryMessage(connection *Connection, body []byte) {
 
 func (s *Server) packMessage(userId *UserId, deviceId *DeviceId, method string, body *[]byte) (*cube.Message, error) {
 
-	params := js.MessageParams{
+	params := js.OnReceiveMessageParams{
 		DeviceId:  (*string)(deviceId),
 		UserId:    (*string)(userId),
 		InputTime: time.Now().UnixNano(),
@@ -378,4 +267,44 @@ func (s *Server) packMessage(userId *UserId, deviceId *DeviceId, method string, 
 	}
 
 	return messageData, nil
+}
+
+func (s *Server) CloseDeviceConnections(userId UserId, deviceId DeviceId, reason string) {
+	s.connections.RemoveDeviceConnections(userId, deviceId, func(connections []*Connection) {
+
+		for _, connection := range connections {
+			connection.Close(websocket.CloseNormalClosure, reason)
+		}
+	})
+}
+
+func (s *Server) CloseUserConnections(userId UserId, reason string) {
+	s.connections.RemoveUserConnections(userId, func(connections []*Connection) {
+
+		for _, connection := range connections {
+			connection.Close(websocket.CloseNormalClosure, reason)
+		}
+	})
+}
+
+func (s *Server) SendMessage(userId *UserId, deviceId *DeviceId, messageType js.MessageType, message []byte) {
+
+	connections := []*Connection{}
+	if deviceId != nil {
+		connections = s.connections.GetDeviceConnections(*userId, *deviceId)
+	} else if userId != nil {
+		connections = s.connections.GetUserConnections(*userId)
+	}
+
+	if len(connections) > 0 {
+		for _, connection := range connections {
+			switch messageType {
+			case js.TEXT:
+				connection.SendText(message)
+			case js.BINARY:
+				connection.SendBinary(message)
+			}
+
+		}
+	}
 }

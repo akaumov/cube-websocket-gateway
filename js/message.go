@@ -7,10 +7,28 @@ const (
 	BINARY MessageType = 1
 )
 
-type MessageParams struct {
+type OnReceiveMessageParams struct {
 	InputTime int64       `json:"inputTime"`
 	UserId    *string     `json:"userId"`
 	DeviceId  *string     `json:"deviceId"`
 	Type      MessageType `json:"type"`
 	Body      []byte      `json:"body"`
+}
+
+type CloseDeviceConnectionsParams struct {
+	UserId   string `json:"userId"`
+	DeviceId string `json:"deviceId"`
+	Reason   string `json:"reason"`
+}
+
+type CloseUserConnectionsParams struct {
+	UserId string `json:"userId"`
+	Reason string `json:"reason"`
+}
+
+type SendMessageParams struct {
+	UserId   *string     `json:"userId"`
+	DeviceId *string     `json:"deviceId"`
+	Type     MessageType `json:"type"`
+	Body     []byte      `json:"body"`
 }
