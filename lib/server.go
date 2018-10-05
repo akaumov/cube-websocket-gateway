@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -24,9 +25,10 @@ type Server struct {
 	jwtSecret              string
 	connections            *ConnectionsStorage
 	lastConnectionNumber   int64
+	port                   int
 }
 
-func NewServer(cubeInstance cube.Cube, devMode bool, onlyAuthorizedRequests bool, jwtSecret string) *Server {
+func NewServer(cubeInstance cube.Cube, devMode bool, onlyAuthorizedRequests bool, jwtSecret string, port int) *Server {
 	return &Server{
 		cubeInstance:           cubeInstance,
 		upgrader:               websocket.Upgrader{},
@@ -34,13 +36,14 @@ func NewServer(cubeInstance cube.Cube, devMode bool, onlyAuthorizedRequests bool
 		onlyAuthorizedRequests: onlyAuthorizedRequests,
 		jwtSecret:              jwtSecret,
 		connections:            NewConnectionsStorage(),
+		port:                   port,
 	}
 }
 
 func (s *Server) Start(cubeInstance cube.Cube) {
 
 	srv := http.Server{
-		Addr:    ":8888",
+		Addr:    ":" + strconv.Itoa(s.port),
 		Handler: s,
 	}
 
@@ -49,7 +52,7 @@ func (s *Server) Start(cubeInstance cube.Cube) {
 	fmt.Println("Start http listening")
 	cubeInstance.LogInfo("Start http listening")
 
-	address := fmt.Sprintf(":%v", 8888)
+	address := fmt.Sprintf(":%v", s.port)
 
 	http.HandleFunc("/", s.ServeHTTP)
 	err := http.ListenAndServe(address, nil)

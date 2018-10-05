@@ -50,7 +50,7 @@ func (h *Handler) OnStart(cubeInstance cube.Cube) error {
 	}
 
 	h.port = port
-	h.server = lib.NewServer(cubeInstance, h.devMode, h.onlyAuthorizedRequests, h.jwtSecret)
+	h.server = lib.NewServer(cubeInstance, h.devMode, h.onlyAuthorizedRequests, h.jwtSecret, port)
 	go h.server.Start(cubeInstance)
 	return nil
 }
