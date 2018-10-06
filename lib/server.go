@@ -26,9 +26,12 @@ type Server struct {
 	connections            *ConnectionsStorage
 	lastConnectionNumber   int64
 	port                   int
+	enableRouting          bool
+	endpointsMap           map[string]cube.Channel
 }
 
-func NewServer(cubeInstance cube.Cube, devMode bool, onlyAuthorizedRequests bool, jwtSecret string, port int) *Server {
+func NewServer(cubeInstance cube.Cube, devMode bool, enableRouting bool, endpointsMap map[string]cube.Channel,
+	onlyAuthorizedRequests bool, jwtSecret string, port int) *Server {
 	return &Server{
 		cubeInstance:           cubeInstance,
 		upgrader:               websocket.Upgrader{},
@@ -37,6 +40,8 @@ func NewServer(cubeInstance cube.Cube, devMode bool, onlyAuthorizedRequests bool
 		jwtSecret:              jwtSecret,
 		connections:            NewConnectionsStorage(),
 		port:                   port,
+		enableRouting:          enableRouting,
+		endpointsMap:           endpointsMap,
 	}
 }
 
@@ -188,9 +193,9 @@ func (s *Server) handleInputMessages(netConnection *Connection) {
 
 		switch messageType {
 		case websocket.TextMessage:
-			s.onTextMessage(netConnection, message)
+			s.onReceiveMessage(netConnection, true, &message)
 		case websocket.BinaryMessage:
-			s.onBinaryMessage(netConnection, message)
+			s.onReceiveMessage(netConnection, false, &message)
 		case websocket.CloseMessage:
 			s.onClose(netConnection)
 			return
@@ -231,26 +236,52 @@ func (s *Server) onClose(connection *Connection) {
 	s.cubeInstance.PublishMessage(cube.Channel("wsOutput"), *packedMessage)
 }
 
-func (s *Server) onTextMessage(connection *Connection, body []byte) {
+func (s *Server) onReceiveMessage(connection *Connection, isText bool, rawBody *[]byte) {
+
+	outputChannel := cube.Channel("wsOutput")
+	body := rawBody
+
+	if s.enableRouting {
+
+		var packet js.RoutingPacket
+		err := json.Unmarshal(*rawBody, &packet)
+		if err != nil {
+			connection.SendText([]byte("ErrorParsingRoutingPacket"))
+			return
+		}
+
+		outputChannel = s.endpointsMap[packet.Endpoint]
+		if outputChannel == "" {
+			connection.SendText([]byte("ErrorEndpointNotFound"))
+			return
+		}
+
+		if len(packet.Payload) == 0 {
+			connection.SendText([]byte("ErrorEmptyPayload"))
+			return
+		}
+
+		body = (*[]byte)(&packet.Payload)
+
+	} else {
+		mapChannel := s.endpointsMap["wsOutput"]
+		if mapChannel != "" {
+			outputChannel = mapChannel
+		}
+	}
+
+	method := "onTextMessage"
+	if !isText {
+		method = "onBinaryMessage"
+	}
 
 	_, userId, deviceId := connection.GetInfo()
-	packedMessage, err := s.packMessage(&userId, &deviceId, "onTextMessage", &body)
+	packedMessage, err := s.packMessage(&userId, &deviceId, method, body)
 	if err != nil {
 		return
 	}
 
-	s.cubeInstance.PublishMessage(cube.Channel("wsOutput"), *packedMessage)
-}
-
-func (s *Server) onBinaryMessage(connection *Connection, body []byte) {
-
-	_, userId, deviceId := connection.GetInfo()
-	packedMessage, err := s.packMessage(&userId, &deviceId, "onBinaryMessage", &body)
-	if err != nil {
-		return
-	}
-
-	s.cubeInstance.PublishMessage(cube.Channel("wsOutput"), *packedMessage)
+	s.cubeInstance.PublishMessage(outputChannel, *packedMessage)
 }
 
 func (s *Server) packMessage(userId *UserId, deviceId *DeviceId, method string, body *[]byte) (*cube.Message, error) {

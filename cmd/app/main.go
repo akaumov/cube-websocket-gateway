@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 
 	"github.com/akaumov/cube-executor"
 	"github.com/akaumov/cube-websocket-gateway"
@@ -39,12 +38,16 @@ func main() {
 		cli.StringFlag{
 			Name:   "endpoints-map",
 			EnvVar: "GATEWAY_ENDPOINTS_MAP",
-			Usage:  "map url to endpoint",
+			Usage:  "map endpoint to channel",
 		},
 		cli.BoolTFlag{
 			Name:   "only-authorized-requests",
 			EnvVar: "GATEWAY_ONLY_AUTHORIZED_REQUESTS",
 			Usage:  "handle only authorized requests",
+		},
+		cli.BoolFlag{
+			Name:   "enable-routing",
+			EnvVar: "GATEWAY_ENABLE_ROUTING",
 		},
 		cli.BoolFlag{
 			Name:   "dev",
@@ -62,29 +65,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-}
-
-func parseChannelsMap(rawMap string) (*map[cube_executor.CubeChannel]cube_executor.BusChannel, error) {
-	if rawMap == "" {
-		return &map[cube_executor.CubeChannel]cube_executor.BusChannel{}, nil
-	}
-
-	params := map[cube_executor.CubeChannel]cube_executor.BusChannel{}
-
-	for _, rawMap := range strings.Split(rawMap, ";") {
-		splittedMap := strings.Split(rawMap, ":")
-
-		if len(splittedMap) != 2 {
-			return nil, fmt.Errorf("Wrong params format: %v\n", rawMap)
-		}
-
-		key := splittedMap[0]
-		value := splittedMap[1]
-
-		params[cube_executor.CubeChannel(key)] = cube_executor.BusChannel(value)
-	}
-
-	return &params, nil
 }
 
 func runServer(c *cli.Context) error {
@@ -111,12 +91,6 @@ func runServer(c *cli.Context) error {
 
 	port := c.String("port")
 
-	endpointsMap := c.String("endpoints-map")
-	channelsMapping, err := parseChannelsMap(endpointsMap)
-	if err != nil {
-		return fmt.Errorf("wrong channels mapping")
-	}
-
 	onlyAuthorizedRequests := "true"
 	if c.Bool("only-authorized-requests") {
 		onlyAuthorizedRequests = "true"
@@ -131,6 +105,20 @@ func runServer(c *cli.Context) error {
 		dev = "false"
 	}
 
+	enableRouting := "false"
+	endpointsMap := c.String("endpoints-map")
+
+	if c.Bool("enable-routing") {
+		enableRouting = "true"
+
+		if endpointsMap == "" {
+			return fmt.Errorf("endpoints map is required")
+		}
+
+	} else {
+		enableRouting = "false"
+	}
+
 	cube, err := cube_executor.NewCube(cube_executor.CubeConfig{
 		BusPort: busPort,
 		BusHost: busHost,
@@ -141,8 +129,8 @@ func runServer(c *cli.Context) error {
 			"onlyAuthorizedRequests": onlyAuthorizedRequests,
 			"dev":                    dev,
 			"port":                   port,
+			"enableRouting":          enableRouting,
 		},
-		ChannelsMapping: *channelsMapping,
 	}, &cube_websocket_gateway.Handler{})
 
 	if err != nil {

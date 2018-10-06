@@ -1,5 +1,9 @@
 package js
 
+import (
+	"encoding/json"
+)
+
 type MessageType int
 
 const (
@@ -31,4 +35,9 @@ type SendMessageParams struct {
 	DeviceId *string     `json:"deviceId"`
 	Type     MessageType `json:"type"`
 	Body     []byte      `json:"body"`
+}
+
+type RoutingPacket struct {
+	Endpoint string          `json:"endpoint"`
+	Payload  json.RawMessage `json:"payload"`
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/akaumov/cube"
 	"github.com/akaumov/cube-websocket-gateway/js"
@@ -13,7 +14,6 @@ import (
 const Version = "1"
 
 type BusSubject string
-type Uri string
 
 type Handler struct {
 	cubeInstance           cube.Cube
@@ -22,6 +22,32 @@ type Handler struct {
 	devMode                bool
 	port                   int
 	server                 *lib.Server
+	enableRouting          bool
+	endpointsMap           map[string]cube.Channel
+}
+
+func parseEndpointsMap(rawMap string) (*map[string]cube.Channel, error) {
+
+	params := map[string]cube.Channel{}
+
+	if rawMap == "" {
+		return &params, nil
+	}
+
+	for _, rawMap := range strings.Split(rawMap, ";") {
+		splittedMap := strings.Split(rawMap, ":")
+
+		if len(splittedMap) != 2 {
+			return nil, fmt.Errorf("Wrong params format: %v\n", rawMap)
+		}
+
+		key := splittedMap[0]
+		value := splittedMap[1]
+
+		params[key] = cube.Channel(value)
+	}
+
+	return &params, nil
 }
 
 func (h *Handler) OnInitInstance() []cube.InputChannel {
@@ -35,6 +61,7 @@ func (h *Handler) OnStart(cubeInstance cube.Cube) error {
 	h.jwtSecret = cubeInstance.GetParam("jwtSecret")
 	h.onlyAuthorizedRequests = cubeInstance.GetParam("onlyAuthorizedRequests") == "true"
 	h.devMode = cubeInstance.GetParam("dev") == "true"
+	h.enableRouting = cubeInstance.GetParam("enableRouting") == "true"
 
 	portString := cubeInstance.GetParam("port")
 
@@ -50,7 +77,15 @@ func (h *Handler) OnStart(cubeInstance cube.Cube) error {
 	}
 
 	h.port = port
-	h.server = lib.NewServer(cubeInstance, h.devMode, h.onlyAuthorizedRequests, h.jwtSecret, port)
+
+	endpointsMap, err := parseEndpointsMap(cubeInstance.GetParam("endpointsMap"))
+	if err != nil {
+		return err
+	}
+
+	h.endpointsMap = *endpointsMap
+
+	h.server = lib.NewServer(cubeInstance, h.devMode, h.enableRouting, *endpointsMap, h.onlyAuthorizedRequests, h.jwtSecret, port)
 	go h.server.Start(cubeInstance)
 	return nil
 }
