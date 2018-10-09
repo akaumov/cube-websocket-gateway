@@ -30,11 +30,15 @@ type CloseUserConnectionsParams struct {
 	Reason string `json:"reason"`
 }
 
-type SendMessageParams struct {
-	UserId   *string     `json:"userId"`
-	DeviceId *string     `json:"deviceId"`
-	Type     MessageType `json:"type"`
-	Body     []byte      `json:"body"`
+type Receiver struct {
+	UserId   *string `json:"userId"`
+	DeviceId *string `json:"deviceId"`
+}
+
+type PublishMessageParams struct {
+	To   []Receiver  `json:"to"`
+	Type MessageType `json:"type"`
+	Body []byte      `json:"body"`
 }
 
 type RoutingPacket struct {

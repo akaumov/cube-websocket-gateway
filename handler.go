@@ -100,7 +100,7 @@ func (h *Handler) OnReceiveMessage(instance cube.Cube, channel cube.Channel, mes
 		h.onCloseDeviceConnetions(message)
 	case "closeUserConnections":
 		h.onCloseUserConnetions(message)
-	case "sendTextMessage":
+	case "publishTextMessage":
 		h.onSendMessage(message)
 
 	default:
@@ -155,17 +155,21 @@ func (h *Handler) onSendMessage(message cube.Message) {
 		return
 	}
 
-	var params js.SendMessageParams
+	var params js.PublishMessageParams
 	err := json.Unmarshal(*message.Params, &params)
 	if err == nil {
 		fmt.Println("onSendMessage: wrong params")
 		return
 	}
 
-	userId := (*lib.UserId)(params.UserId)
-	deviceId := (*lib.DeviceId)(params.DeviceId)
-
-	h.server.SendMessage(userId, deviceId, params.Type, params.Body)
+	for _, receiver := range params.To {
+		h.server.SendMessage(
+			(*lib.UserId)(receiver.UserId),
+			(*lib.DeviceId)(receiver.DeviceId),
+			params.Type,
+			params.Body,
+		)
+	}
 }
 
 //From bus
