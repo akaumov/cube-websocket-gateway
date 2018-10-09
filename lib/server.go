@@ -16,6 +16,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+type Endpoint string
+
 type Server struct {
 	cubeInstance           cube.Cube
 	upgrader               websocket.Upgrader
@@ -27,10 +29,10 @@ type Server struct {
 	lastConnectionNumber   int64
 	port                   int
 	enableRouting          bool
-	endpointsMap           map[string]cube.Channel
+	endpointsMap           map[Endpoint]cube.Channel
 }
 
-func NewServer(cubeInstance cube.Cube, devMode bool, enableRouting bool, endpointsMap map[string]cube.Channel,
+func NewServer(cubeInstance cube.Cube, devMode bool, enableRouting bool, endpointsMap map[Endpoint]cube.Channel,
 	onlyAuthorizedRequests bool, jwtSecret string, port int) *Server {
 	return &Server{
 		cubeInstance:           cubeInstance,
@@ -250,7 +252,7 @@ func (s *Server) onReceiveMessage(connection *Connection, isText bool, rawBody *
 			return
 		}
 
-		outputChannel = s.endpointsMap[packet.Endpoint]
+		outputChannel = s.endpointsMap[Endpoint(packet.Endpoint)]
 		if outputChannel == "" {
 			connection.SendText([]byte("ErrorEndpointNotFound"))
 			return

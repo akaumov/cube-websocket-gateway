@@ -23,12 +23,13 @@ type Handler struct {
 	port                   int
 	server                 *lib.Server
 	enableRouting          bool
-	endpointsMap           map[string]cube.Channel
+	endpointsMap           map[lib.Endpoint]cube.Channel
+	inputChannel           cube.InputChannel
 }
 
-func parseEndpointsMap(rawMap string) (*map[string]cube.Channel, error) {
+func parseEndpointsMap(rawMap string) (*map[lib.Endpoint]cube.Channel, error) {
 
-	params := map[string]cube.Channel{}
+	params := map[lib.Endpoint]cube.Channel{}
 
 	if rawMap == "" {
 		return &params, nil
@@ -44,14 +45,16 @@ func parseEndpointsMap(rawMap string) (*map[string]cube.Channel, error) {
 		key := splittedMap[0]
 		value := splittedMap[1]
 
-		params[key] = cube.Channel(value)
+		params[lib.Endpoint(key)] = cube.Channel(value)
 	}
 
 	return &params, nil
 }
 
 func (h *Handler) OnInitInstance() []cube.InputChannel {
-	return []cube.InputChannel{}
+	return []cube.InputChannel{
+		cube.InputChannel("wsinput"),
+	}
 }
 
 func (h *Handler) OnStart(cubeInstance cube.Cube) error {

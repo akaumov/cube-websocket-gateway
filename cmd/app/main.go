@@ -12,7 +12,7 @@ import (
 
 func main() {
 	app := cli.NewApp()
-	app.Version = "0.0.2"
+	app.Version = "0.0.3"
 	app.Action = runServer
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
@@ -39,6 +39,11 @@ func main() {
 			Name:   "endpoints-map",
 			EnvVar: "GATEWAY_ENDPOINTS_MAP",
 			Usage:  "map endpoint to channel",
+		},
+		cli.StringFlag{
+			Name:   "input-channel",
+			EnvVar: "GATEWAY_INPUT_CHANNEL",
+			Usage:  "input channel, default \"wsinput\"",
 		},
 		cli.BoolTFlag{
 			Name:   "only-authorized-requests",
@@ -119,9 +124,16 @@ func runServer(c *cli.Context) error {
 		enableRouting = "false"
 	}
 
+	channelsMapping := map[cube_executor.CubeChannel]cube_executor.BusChannel{}
+	inputChannel := c.String("input-channel")
+	if inputChannel != "" {
+		channelsMapping[cube_executor.CubeChannel("wsinput")] = cube_executor.BusChannel(inputChannel)
+	}
+
 	cube, err := cube_executor.NewCube(cube_executor.CubeConfig{
-		BusPort: busPort,
-		BusHost: busHost,
+		BusPort:         busPort,
+		BusHost:         busHost,
+		ChannelsMapping: channelsMapping,
 		Params: map[string]string{
 			"jwtSecret":              jwtSecret,
 			"maxConnections":         maxConnections,
